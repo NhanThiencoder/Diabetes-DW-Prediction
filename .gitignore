@@ -1,0 +1,46 @@
+# Dataset files (auto-download from Google Drive)
+dataset/
+dataset.zip
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+*.cache
+.pytest_cache/
+
+# Models and outputs
+*.pkl
+*.joblib
+models/
+outputs/
+results/
+
+# Keep folder structure in Git
+!models/.gitkeep
+!outputs/.gitkeep
+!results/.gitkeep
