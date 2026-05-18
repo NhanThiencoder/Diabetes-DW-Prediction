@@ -29,12 +29,12 @@ def load_and_prepare_brfss() -> pd.DataFrame:
 
     FILE_ID = '1M2S6kV8cA3PVHsHF3czXbwVj43HWMRan'
     URL = f'https://drive.google.com/uc?id={FILE_ID}'
-    zip_path = 'dataset.zip'
-    extract_folder = 'dataset'
+    zip_path = 'data/raw/dataset.zip'
+    extract_folder = 'data/raw'
     csv_file = 'diabetes_binary_health_indicators_BRFSS2015.csv'
     csv_file_path = os.path.join(extract_folder, csv_file)
 
-    if not os.path.exists(extract_folder):
+    if not os.path.exists(csv_file_path):
         print("[*] Không tìm thấy dữ liệu ở Local. Đang tiến hành tải từ Google Drive...")
         gdown.download(URL, zip_path, quiet=False)
         print("\n[*] Đang giải nén dữ liệu...")

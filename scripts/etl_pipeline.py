@@ -11,79 +11,79 @@ from src.diabetes_dw_prediction.data_loading import load_and_prepare_brfss
 
 def run_etl_pipeline(db_path="dw/data_warehouse.db"):
     """
-    Thực hiện ETL:
+    Thực hiện ETL cho bộ dữ liệu 22 cột thực tế của nhóm:
     1. Lấy dữ liệu từ Staging (file CSV).
-    2. Transform thành Star Schema (Dim_Demographic, Dim_Lifestyle, Dim_HealthStatus, Fact_PatientHealth).
+    2. Transform thành Star Schema chuẩn (5 Dim, 1 Fact).
     3. Load vào SQLite Database.
     """
     print("[1/3] Extracting data from Staging Area...")
-    # Lấy dữ liệu (hàm này có sẵn trong project của bạn)
     df = load_and_prepare_brfss()
     
-    # Tạo ID giả lập cho mỗi dòng (PatientID) vì dataset gốc không có
+    # Tạo PatientID giả lập vì dataset gốc không có
     df = df.reset_index(names='PatientID')
     
-    print("[2/3] Transforming data to Star Schema...")
-    # ---------------------------------------------------------
+    print("[2/3] Transforming data to Star Schema (Full 22 Columns)...")
+    
     # 1. Dim_Demographic
-    # ---------------------------------------------------------
-    # Các cột: DemographicKey, AgeGroup, Sex, Education, Income
-    # Lưu ý: Trong file gốc các cột tên là Age, Sex, Education, Income
     dim_demographic = df[['Age', 'Sex', 'Education', 'Income']].drop_duplicates().reset_index(drop=True)
     dim_demographic = dim_demographic.reset_index(names='DemographicKey')
-    # Đổi tên cột cho đúng chuẩn
-    dim_demographic.rename(columns={'Age': 'AgeGroup'}, inplace=True)
 
-    # ---------------------------------------------------------
     # 2. Dim_Lifestyle
-    # ---------------------------------------------------------
-    # Các cột: LifestyleKey, Smoker, PhysActivity
-    dim_lifestyle = df[['Smoker', 'PhysActivity']].drop_duplicates().reset_index(drop=True)
+    dim_lifestyle = df[['Smoker', 'PhysActivity', 'Fruits', 'Veggies', 'HvyAlcoholConsump']].drop_duplicates().reset_index(drop=True)
     dim_lifestyle = dim_lifestyle.reset_index(names='LifestyleKey')
 
-    # ---------------------------------------------------------
     # 3. Dim_HealthStatus
-    # ---------------------------------------------------------
-    # Các cột: HealthStatusKey, GenHlth, HighBP, HighChol
-    dim_healthstatus = df[['GenHlth', 'HighBP', 'HighChol']].drop_duplicates().reset_index(drop=True)
+    dim_healthstatus = df[['GenHlth', 'MentHlth', 'PhysHlth', 'DiffWalk']].drop_duplicates().reset_index(drop=True)
     dim_healthstatus = dim_healthstatus.reset_index(names='HealthStatusKey')
 
-    # ---------------------------------------------------------
-    # 4. Fact_PatientHealth
-    # ---------------------------------------------------------
-    # Merge để lấy Key từ các Dimension bảng
-    fact_df = df[['PatientID', 'Age', 'Sex', 'Education', 'Income', 
-                  'Smoker', 'PhysActivity', 
-                  'GenHlth', 'HighBP', 'HighChol', 
-                  'BMI', 'Diabetes_binary']].copy()
+    # 4. Dim_MedicalHistory
+    dim_medical = df[['HighBP', 'HighChol', 'CholCheck', 'Stroke', 'HeartDiseaseorAttack']].drop_duplicates().reset_index(drop=True)
+    dim_medical = dim_medical.reset_index(names='MedicalHistoryKey')
 
-    # Map DemographicKey
-    fact_df = fact_df.merge(dim_demographic, left_on=['Age', 'Sex', 'Education', 'Income'], right_on=['AgeGroup', 'Sex', 'Education', 'Income'], how='left')
-    
-    # Map LifestyleKey
-    fact_df = fact_df.merge(dim_lifestyle, on=['Smoker', 'PhysActivity'], how='left')
-    
-    # Map HealthStatusKey
-    fact_df = fact_df.merge(dim_healthstatus, on=['GenHlth', 'HighBP', 'HighChol'], how='left')
+    # 5. Dim_HealthcareAccess
+    dim_healthcare = df[['AnyHealthcare', 'NoDocbcCost']].drop_duplicates().reset_index(drop=True)
+    dim_healthcare = dim_healthcare.reset_index(names='HealthcareAccessKey')
 
-    # Chỉ giữ lại các cột đúng như yêu cầu
-    fact_patienthealth = fact_df[['PatientID', 'DemographicKey', 'LifestyleKey', 'HealthStatusKey', 'BMI', 'Diabetes_binary']]
+    # 6. Fact_PatientHealth
+    fact_df = df.copy()
+
+    # Map các khóa (Keys)
+    fact_df = fact_df.merge(dim_demographic, on=['Age', 'Sex', 'Education', 'Income'], how='left')
+    fact_df = fact_df.merge(dim_lifestyle, on=['Smoker', 'PhysActivity', 'Fruits', 'Veggies', 'HvyAlcoholConsump'], how='left')
+    fact_df = fact_df.merge(dim_healthstatus, on=['GenHlth', 'MentHlth', 'PhysHlth', 'DiffWalk'], how='left')
+    fact_df = fact_df.merge(dim_medical, on=['HighBP', 'HighChol', 'CholCheck', 'Stroke', 'HeartDiseaseorAttack'], how='left')
+    fact_df = fact_df.merge(dim_healthcare, on=['AnyHealthcare', 'NoDocbcCost'], how='left')
+
+    # Giữ lại đúng các cột của Fact Table
+    fact_patienthealth = fact_df[['PatientID', 'DemographicKey', 'LifestyleKey', 'HealthStatusKey', 
+                                  'MedicalHistoryKey', 'HealthcareAccessKey', 'BMI', 'Diabetes_binary']]
 
     print("[3/3] Loading data into SQLite (Data Warehouse)...")
-    # Đảm bảo thư mục lưu DB tồn tại
     os.makedirs(os.path.dirname(db_path) if os.path.dirname(db_path) else '.', exist_ok=True)
     
-    # Kết nối SQLite và ghi dữ liệu
+    # Xóa file db cũ nếu có để khởi tạo lại từ đầu
+    if os.path.exists(db_path):
+        os.remove(db_path)
+
     conn = sqlite3.connect(db_path)
     
-    # Ghi từng bảng, sử dụng index=False để không ghi index của DataFrame
-    dim_demographic.to_sql('Dim_Demographic', conn, if_exists='replace', index=False)
-    dim_lifestyle.to_sql('Dim_Lifestyle', conn, if_exists='replace', index=False)
-    dim_healthstatus.to_sql('Dim_HealthStatus', conn, if_exists='replace', index=False)
-    fact_patienthealth.to_sql('Fact_PatientHealth', conn, if_exists='replace', index=False)
+    # Đọc và thực thi file star_schema.sql để TẠO CẤU TRÚC BẢNG có sẵn Primary Key và Foreign Key
+    schema_path = os.path.join(project_root, 'dw', 'schema', 'star_schema.sql')
+    with open(schema_path, 'r', encoding='utf-8') as f:
+        schema_sql = f.read()
+    conn.executescript(schema_sql)
+    conn.commit()
+    
+    # Ghi dữ liệu vào các bảng ĐÃ TẠO (sử dụng append để giữ nguyên Primary Key)
+    dim_demographic.to_sql('Dim_Demographic', conn, if_exists='append', index=False)
+    dim_lifestyle.to_sql('Dim_Lifestyle', conn, if_exists='append', index=False)
+    dim_healthstatus.to_sql('Dim_HealthStatus', conn, if_exists='append', index=False)
+    dim_medical.to_sql('Dim_MedicalHistory', conn, if_exists='append', index=False)
+    dim_healthcare.to_sql('Dim_HealthcareAccess', conn, if_exists='append', index=False)
+    fact_patienthealth.to_sql('Fact_PatientHealth', conn, if_exists='append', index=False)
     
     conn.close()
-    print(f"[*] ETL hoàn tất! Database đã được lưu tại: {db_path}")
+    print(f"[*] ETL hoàn tất! Database đã bao gồm toàn bộ Data của nhóm tại: {db_path}")
 
 if __name__ == "__main__":
     run_etl_pipeline(db_path="dw/data_warehouse.db")
