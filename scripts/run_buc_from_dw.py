@@ -6,7 +6,7 @@ from pathlib import Path
 # Thêm thư mục gốc vào đường dẫn hệ thống để Python hiểu được module 'src'
 project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
-from src.diabetes_dw_prediction.cube_buc import iceberg_cube_buc
+from scripts.cube_buc import iceberg_cube_buc
 
 def prepare_data_for_buc(db_path=None):
     """

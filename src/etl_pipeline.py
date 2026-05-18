@@ -7,7 +7,7 @@ from pathlib import Path
 # Thêm thư mục gốc vào đường dẫn hệ thống để Python hiểu được module 'src'
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(project_root))
-from src.diabetes_dw_prediction.data_loading import load_and_prepare_brfss
+from scripts.data_loading import load_and_prepare_brfss
 
 def run_etl_pipeline(db_path="dw/data_warehouse.db"):
     """
