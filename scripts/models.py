@@ -13,22 +13,6 @@ class ModelBundle:
     logistic_regression: LogisticRegression
     random_forest: RandomForestClassifier
 
-
-def build_logistic_regression(
-    random_state: int = 42,
-    max_iter: int = 1000,
-    class_weight: str | None = "balanced",
-) -> LogisticRegression:
-    """Create a baseline Logistic Regression model (not fitted)."""
-
-    return LogisticRegression(
-        max_iter=max_iter,
-        random_state=random_state,
-        class_weight=class_weight,
-        solver="lbfgs",
-    )
-
-
 def build_random_forest(
     random_state: int = 42,
     n_estimators: int = 300,
@@ -49,7 +33,20 @@ def build_random_forest(
         random_state=random_state,
         n_jobs=n_jobs,
     )
+    
+def build_logistic_regression(
+    random_state: int = 42,
+    max_iter: int = 1000,
+    class_weight: str | None = "balanced",
+) -> LogisticRegression:
+    """Create a baseline Logistic Regression model (not fitted)."""
 
+    return LogisticRegression(
+        max_iter=max_iter,
+        random_state=random_state,
+        class_weight=class_weight,
+        solver="lbfgs",
+    )
 
 def build_models(random_state: int = 42) -> ModelBundle:
     """Build both baseline and main models (not fitted)."""
