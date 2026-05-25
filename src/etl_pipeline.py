@@ -4,12 +4,12 @@ import sqlite3
 import pandas as pd
 from pathlib import Path
 
-# Thêm thư mục gốc vào đường dẫn hệ thống để Python hiểu được module 'src'
-project_root = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(project_root))
+# Thêm thư mục gốc vào đường dẫn hệ thống để Python hiểu được module 'scripts'
+project_root = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(project_root))
 from scripts.data_loading import load_and_prepare_brfss
 
-def run_etl_pipeline(db_path="dw/data_warehouse.db"):
+def run_etl_pipeline(db_path=None):
     """
     Thực hiện ETL cho bộ dữ liệu 22 cột thực tế của nhóm:
     1. Lấy dữ liệu từ Staging (file CSV).
@@ -59,17 +59,21 @@ def run_etl_pipeline(db_path="dw/data_warehouse.db"):
                                   'MedicalHistoryKey', 'HealthcareAccessKey', 'BMI', 'Diabetes_binary']]
 
     print("[3/3] Loading data into SQLite (Data Warehouse)...")
-    os.makedirs(os.path.dirname(db_path) if os.path.dirname(db_path) else '.', exist_ok=True)
+    if db_path is None:
+        db_path = project_root / "dw" / "data_warehouse.db"
+    db_path = Path(db_path)
+
+    os.makedirs(db_path.parent, exist_ok=True)
     
     # Xóa file db cũ nếu có để khởi tạo lại từ đầu
-    if os.path.exists(db_path):
-        os.remove(db_path)
+    if db_path.exists():
+        db_path.unlink()
 
     conn = sqlite3.connect(db_path)
     
     # Đọc và thực thi file star_schema.sql để TẠO CẤU TRÚC BẢNG có sẵn Primary Key và Foreign Key
-    schema_path = os.path.join(project_root, 'dw', 'schema', 'star_schema.sql')
-    with open(schema_path, 'r', encoding='utf-8') as f:
+    schema_path = project_root / "dw" / "schema" / "star_schema.sql"
+    with open(schema_path, "r", encoding="utf-8") as f:
         schema_sql = f.read()
     conn.executescript(schema_sql)
     conn.commit()
@@ -86,4 +90,4 @@ def run_etl_pipeline(db_path="dw/data_warehouse.db"):
     print(f"[*] ETL hoàn tất! Database đã bao gồm toàn bộ Data của nhóm tại: {db_path}")
 
 if __name__ == "__main__":
-    run_etl_pipeline(db_path="dw/data_warehouse.db")
+    run_etl_pipeline()
