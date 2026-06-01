@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -56,6 +57,64 @@ def evaluate_model(name, model, X_test, y_test):
     print(f"Recall   : {recall_score(y_test, y_pred):.4f}")
     print(f"F1 Score : {f1_score(y_test, y_pred):.4f}")
     print(f"ROC AUC  : {roc_auc_score(y_test, y_prob):.4f}")
+
+
+def find_best_threshold_f1(y_true: np.ndarray, y_prob: np.ndarray) -> tuple[float, dict[str, float]]:
+    """Find decision threshold that maximizes F1 score.
+
+    With imbalanced data, the default 0.5 threshold often predicts mostly the
+    negative class. ROC-AUC can still be decent, meaning threshold tuning can
+    improve the precision/recall trade-off for the positive class.
+    """
+
+    best_t = 0.5
+    best_f1 = -1.0
+    best_metrics: dict[str, float] = {}
+
+    for t in np.linspace(0.05, 0.95, 91):
+        y_pred = (y_prob >= t).astype(int)
+        f1 = f1_score(y_true, y_pred, zero_division=0)
+        if f1 > best_f1:
+            best_f1 = float(f1)
+            best_t = float(t)
+            best_metrics = {
+                "threshold": float(t),
+                "precision": float(precision_score(y_true, y_pred, zero_division=0)),
+                "recall": float(recall_score(y_true, y_pred, zero_division=0)),
+                "f1": float(f1),
+                "pred_positive_rate": float(y_pred.mean()),
+            }
+
+    return best_t, best_metrics
+
+
+def find_best_threshold_youden(y_true: np.ndarray, y_prob: np.ndarray) -> tuple[float, dict[str, float]]:
+    """Find threshold that maximizes Youden's J = TPR - FPR.
+
+    This criterion focuses on separating the two classes and is often used to
+    pick an operating point on the ROC curve.
+    """
+
+    from sklearn.metrics import roc_curve
+
+    fpr, tpr, thresholds = roc_curve(y_true, y_prob)
+    j = tpr - fpr
+    best_idx = int(np.nanargmax(j))
+    best_t = float(thresholds[best_idx])
+
+    y_pred = (y_prob >= best_t).astype(int)
+    best_metrics = {
+        "threshold": best_t,
+        "criterion": "youden_j",
+        "precision": float(precision_score(y_true, y_pred, zero_division=0)),
+        "recall": float(recall_score(y_true, y_pred, zero_division=0)),
+        "f1": float(f1_score(y_true, y_pred, zero_division=0)),
+        "pred_positive_rate": float(y_pred.mean()),
+        "tpr": float(tpr[best_idx]),
+        "fpr": float(fpr[best_idx]),
+        "youden_j": float(j[best_idx]),
+    }
+    return best_t, best_metrics
 
 def main():
     print("[*] KIỂM TRA DỮ LIỆU ĐẦU VÀO...")
@@ -133,6 +192,30 @@ def main():
     print("[4/4] Quá trình Train hoàn tất! Đang tính toán các chỉ số đánh giá...")
     evaluate_model('Logistic Regression', lr_model, X_test_lr_scaled, y_test_lr)
     evaluate_model('Random Forest', rf_model, X_test_rf_w, y_test_rf)
+
+    # 5. THRESHOLD TUNING (suggested for app/demo)
+    print("\n[5/4] Gợi ý ngưỡng (threshold) tối ưu để phân biệt 2 lớp...")
+
+    lr_prob = lr_model.predict_proba(X_test_lr_scaled)[:, 1]
+    rf_prob = rf_model.predict_proba(X_test_rf_w)[:, 1]
+
+    # Use Youden's J for a more separation-focused threshold
+    lr_t, lr_best = find_best_threshold_youden(y_test_lr.to_numpy(), lr_prob)
+    rf_t, rf_best = find_best_threshold_youden(y_test_rf.to_numpy(), rf_prob)
+
+    print("\n--- THRESHOLD SUGGESTION (Youden's J on ROC) ---")
+    print(
+        f"LR best_threshold={lr_t:.2f} | precision={lr_best['precision']:.4f} | recall={lr_best['recall']:.4f} | f1={lr_best['f1']:.4f}"
+    )
+    print(
+        f"RF best_threshold={rf_t:.2f} | precision={rf_best['precision']:.4f} | recall={rf_best['recall']:.4f} | f1={rf_best['f1']:.4f}"
+    )
+
+    thresholds_path = MODELS_DIR / "thresholds.json"
+    with open(thresholds_path, "w", encoding="utf-8") as f:
+        json.dump({"lr": lr_best, "rf": rf_best}, f, ensure_ascii=False, indent=2)
+
+    print(f"\n[*] Saved thresholds: {thresholds_path}")
 
     print(f"\\n[*] HOÀN TẤT PIPELINE! Toàn bộ Models và Artifacts đã được lưu trong thư mục: {MODELS_DIR}")
 

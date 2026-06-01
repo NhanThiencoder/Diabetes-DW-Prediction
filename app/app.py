@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import json
 from pathlib import Path
 
 # ==========================================
@@ -40,10 +41,21 @@ try:
     rf_preproc = joblib.load(MODELS_DIR / 'rf_preproc.joblib')
     imputer = rf_preproc['imputer']
     winsor_bounds = rf_preproc['winsor_bounds']
+    # Optional: recommended threshold persisted from training
+    thresholds_path = MODELS_DIR / 'thresholds.json'
+    if thresholds_path.exists():
+        with open(thresholds_path, 'r', encoding='utf-8') as f:
+            thresholds = json.load(f)
+        rf_threshold_default = float(thresholds.get('rf', {}).get('threshold', 0.5))
+    else:
+        rf_threshold_default = 0.5
     model_loaded = True
 except Exception as e:
     st.error(f"Lỗi tải mô hình: Vui lòng kiểm tra thư mục 'models'. Chi tiết: {e}")
     model_loaded = False
+
+# Fixed threshold for consistent demo behavior (set during training)
+rf_threshold = float(rf_threshold_default) if model_loaded else 0.5
 
 # --- CÁC HÀM QUY ĐỔI CHUẨN CDC ---
 def map_age_to_cdc(age):
@@ -149,13 +161,17 @@ with st.form("patient_form"):
         input_df_w = apply_winsor(input_df_imp, winsor_bounds)
         
         try:
-            prediction = rf_model.predict(input_df_w)
+            # Predict probability instead of raw label to handle class imbalance better
+            proba = float(rf_model.predict_proba(input_df_w)[:, 1][0])
+            prediction = int(proba >= float(rf_threshold))
             st.markdown("---")
-            if prediction[0] == 0:
+            
+            
+
+            if prediction == 0:
                 st.success("🟢 KẾT QUẢ: Bệnh nhân **KHÔNG CÓ NGUY CƠ** mắc bệnh tiểu đường.")
-            elif prediction[0] == 1: 
-                st.warning("🟡 KẾT QUẢ: **TIỀN TIỂU ĐƯỜNG (Prediabetes)**. Cần điều chỉnh chế độ sinh hoạt!")
-            else: 
-                st.error("🔴 KẾT QUẢ: **CÓ NGUY CƠ CAO** mắc bệnh tiểu đường. Vui lòng can thiệp y tế!")
+            else:
+                # Binary target: Diabetes_binary = 1 means at-risk/diabetic in this dataset
+                st.error("🔴 KẾT QUẢ: **CÓ NGUY CƠ** mắc bệnh tiểu đường.")
         except Exception as e:
             st.error(f"Đã xảy ra lỗi: {e}")
