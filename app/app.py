@@ -4,6 +4,7 @@ import numpy as np
 import joblib
 import json
 from pathlib import Path
+import plotly.graph_objects as go
 
 # ==========================================
 # CẤU HÌNH TRANG WEB & ĐƯỜNG DẪN
@@ -161,17 +162,130 @@ with st.form("patient_form"):
         input_df_w = apply_winsor(input_df_imp, winsor_bounds)
         
         try:
-            # Predict probability instead of raw label to handle class imbalance better
+            # Ẩn việc tính toán xác suất ở background, chỉ dùng để ra quyết định
             proba = float(rf_model.predict_proba(input_df_w)[:, 1][0])
             prediction = int(proba >= float(rf_threshold))
+            
+            st.markdown("---")
+            st.subheader("📊 KẾT QUẢ CHẨN ĐOÁN & SUY LUẬN Y KHOA TỪ AI")
+            
+            # 1. HIỂN THỊ KẾT LUẬN CHÍNH
+            if prediction == 0:
+                st.success("🟢 KẾT LUẬN TỔNG QUAN: Bệnh nhân **KHÔNG CÓ NGUY CƠ** mắc bệnh tiểu đường ở thời điểm hiện tại.")
+            else:
+                st.error("🔴 KẾT LUẬN TỔNG QUAN: Bệnh nhân **CÓ NGUY CƠ CAO** mắc bệnh tiểu đường. Khuyến nghị thực hiện xét nghiệm HbA1c!")
+
             st.markdown("---")
             
+            # ==========================================
+            # 2. BIỂU ĐỒ PHÂN TÍCH RỦI RO (CĂN GIỮA)
+            # ==========================================
+            st.write("**🔍 Biểu đồ Phân bổ Rủi ro Đa chiều:**")
             
+            # Tính điểm đánh giá theo cụm
+            body_score = 0
+            if BMI >= 30: body_score += 7
+            elif BMI >= 25: body_score += 4
+            if raw_age >= 60: body_score += 3
+            elif raw_age >= 45: body_score += 1
+            body_score = min(body_score, 10)
 
-            if prediction == 0:
-                st.success("🟢 KẾT QUẢ: Bệnh nhân **KHÔNG CÓ NGUY CƠ** mắc bệnh tiểu đường.")
+            cardio_score = (HighBP * 4) + (HighChol * 4) + (HeartDiseaseorAttack * 2)
+            cardio_score = min(cardio_score, 10)
+
+            lifestyle_bad = (Smoker * 4) + (HvyAlcoholConsump * 3)
+            lifestyle_good = (PhysActivity * 3) + (Fruits * 2) + (Veggies * 2)
+            lifestyle_score = max(0, min(5 + lifestyle_bad - lifestyle_good, 10))
+
+            # Vẽ Radar Chart
+            categories = ['Thể trạng (BMI/Tuổi)', 'Bệnh lý Mạch máu', 'Lối sống & Thói quen']
+            patient_scores = [body_score, cardio_score, lifestyle_score]
+            warning_levels = [5, 5, 5]
+
+            fig_radar = go.Figure()
+            fig_radar.add_trace(go.Scatterpolar(
+                r=patient_scores + [patient_scores[0]],
+                theta=categories + [categories[0]],
+                fill='toself',
+                name='Hồ sơ của bạn',
+                fillcolor="rgba(255, 0, 0, 0.4)" if prediction == 1 else "rgba(0, 128, 0, 0.4)",
+                line_color="red" if prediction == 1 else "green"
+            ))
+            fig_radar.add_trace(go.Scatterpolar(
+                r=warning_levels + [warning_levels[0]],
+                theta=categories + [categories[0]],
+                fill='none',
+                name='Ngưỡng cảnh báo',
+                line_color='orange',
+                line_dash='dash'
+            ))
+            fig_radar.update_layout(
+                polar=dict(radialaxis=dict(visible=True, range=[0, 10])),
+                showlegend=True,
+                height=450,
+                margin=dict(l=40, r=40, t=40, b=10)
+            )
+            
+            # Dùng st.columns để ép biểu đồ vào chính giữa trang
+            col_spacer1, col_center, col_spacer2 = st.columns([1, 2, 1])
+            with col_center:
+                st.plotly_chart(fig_radar, use_container_width=True)
+
+            # ==========================================
+            # 3. SUY LUẬN LÂM SÀNG DỰA TRÊN DỮ LIỆU
+            # ==========================================
+            st.markdown("---")
+            st.write("**🧠 Suy luận Lâm sàng từ Dữ liệu Bệnh lý & Lối sống:**")
+            
+            risk_factors = []
+            protective_factors = []
+            
+            # --- Phân tích chéo Bệnh lý ---
+            medical_issues = sum([HighBP, HighChol, Stroke, HeartDiseaseorAttack])
+            
+            if medical_issues >= 2 and BMI >= 25:
+                risk_factors.append(f"**Hội chứng chuyển hóa:** Việc thừa cân (BMI={BMI:.1f}) đi kèm đa bệnh lý nền ({medical_issues} bệnh lý tim mạch/huyết áp) đang tạo sức ép lớn lên tuyến tụy, làm kháng insulin trầm trọng.")
+            elif medical_issues >= 2:
+                risk_factors.append(f"**Báo động Hệ tuần hoàn:** Dù cân nặng ổn định, việc mắc {medical_issues} chứng bệnh nền về mạch máu là rủi ro cốt lõi đẩy nhanh nguy cơ tiểu đường.")
+            elif (HighBP == 1 or HighChol == 1) and BMI >= 30:
+                risk_factors.append(f"**Tích tụ mỡ nội tạng:** Thể trạng béo phì (BMI={BMI:.1f}) kết hợp rối loạn huyết áp/mỡ máu là tín hiệu rõ ràng của việc suy giảm trao đổi chất.")
+            elif HighBP == 1 or HighChol == 1:
+                risk_factors.append("**Tín hiệu cảnh báo sớm:** Huyết áp hoặc Cholesterol đang ở mức cao, cần kiểm soát ngay để chặn đứng chuỗi rối loạn chuyển hóa.")
             else:
-                # Binary target: Diabetes_binary = 1 means at-risk/diabetic in this dataset
-                st.error("🔴 KẾT QUẢ: **CÓ NGUY CƠ** mắc bệnh tiểu đường.")
+                protective_factors.append("**Nền tảng sinh lý ổn định:** Không phát hiện các bệnh lý nền nguy hiểm về hệ tuần hoàn, giảm tải đáng kể rủi ro cho cơ thể.")
+
+            # --- Phân tích chéo Lối sống ---
+            bad_habits = sum([Smoker, HvyAlcoholConsump])
+            good_habits = sum([PhysActivity, Fruits, Veggies])
+            
+            if bad_habits > 0 and good_habits == 0:
+                risk_factors.append("**Báo động đỏ Lối sống:** Sử dụng chất kích thích (khói thuốc/cồn) cộng với việc hoàn toàn tĩnh tại đang trực tiếp phá hủy chức năng điều tiết đường huyết tự nhiên.")
+            elif bad_habits > 0 and good_habits >= 2:
+                risk_factors.append("**Lối sống mâu thuẫn:** Dù có duy trì vận động/dinh dưỡng, độc tố từ thuốc lá hoặc cồn vẫn sinh ra stress oxy hóa âm thầm làm tổn thương tế bào.")
+            elif bad_habits == 0 and good_habits == 3:
+                protective_factors.append("**Thói quen bảo vệ xuất sắc:** Chế độ ăn giàu chất xơ kết hợp vận động thường xuyên tạo ra lá chắn vững chắc chống lại tiểu đường tuýp 2.")
+            elif PhysActivity == 0 and BMI >= 25:
+                risk_factors.append("**Vòng lặp tĩnh tại:** Thiếu vận động làm trầm trọng thêm tình trạng thừa cân, khiến lượng đường trong máu không được chuyển hóa vào cơ bắp.")
+            elif good_habits >= 1:
+                protective_factors.append("**Thói quen tích cực:** Việc duy trì được thói quen tốt như ăn rau xanh hoặc vận động nhẹ đang giúp cơ thể giữ thăng bằng nhất định.")
+
+            # Hiển thị 2 cột rủi ro và bảo vệ
+            col_warn, col_good = st.columns(2)
+            with col_warn:
+                st.warning("⚠️ **YẾU TỐ RỦI RO NGHIÊM TRỌNG**")
+                if risk_factors:
+                    for factor in risk_factors:
+                        st.write(f"- {factor}")
+                else:
+                    st.write("- Tốt! Không phát hiện cụm rủi ro đáng kể nào.")
+                    
+            with col_good:
+                st.success("✅ **YẾU TỐ BẢO VỆ & KHUYẾN NGHỊ**")
+                if protective_factors:
+                    for factor in protective_factors:
+                        st.write(f"- {factor}")
+                else:
+                    st.write("- Đề nghị thiết lập lại toàn diện lối sống khỏe mạnh.")
+
         except Exception as e:
-            st.error(f"Đã xảy ra lỗi: {e}")
+            st.error(f"Đã xảy ra lỗi trong quá trình phân tích: {e}")
